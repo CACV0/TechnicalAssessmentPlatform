@@ -1,33 +1,39 @@
 import { Server } from 'http';
+import debugLib from 'debug';
 
 import app from '../app';
 import config from '../config';
+import { connectDatabase } from '../database/postgres';
+
+const debug = debugLib('platform:server');
 
 let server: Server;
 
-const startServer = (): void => {
+const startServer = async (): Promise<void> => {
 	try {
+		await connectDatabase();
+
 		server = app.listen(config.CONFIG.PORT, () => {
-			console.log(`Server running on port ${config.CONFIG.PORT}`);
+			debug(`Server running on port ${config.CONFIG.PORT}`);
 		});
 
 		server.on('error', (error: NodeJS.ErrnoException) => {
-			console.error('Server error:', error.message);
+			debug('Server error: %s', error.message);
 
 			if (error.code === 'EADDRINUSE') {
-				console.error(`Port ${config.CONFIG.PORT} is already in use.`);
+				debug(`Port ${config.CONFIG.PORT} is already in use.`);
 			}
 
 			process.exit(1);
 		});
 	} catch (error) {
-		console.error('Unexpected error while starting server:', error);
+		debug('Unexpected error while starting server: %O', error);
 		process.exit(1);
 	}
 };
 
 const shutdown = (signal: string): void => {
-	console.log(`${signal} received. Shutting down...`);
+	debug('%s received. Shutting down...', signal);
 
 	if (!server) {
 		process.exit(0);
@@ -35,11 +41,11 @@ const shutdown = (signal: string): void => {
 
 	server.close((error) => {
 		if (error) {
-			console.error('Error while closing server:', error);
+			debug('Error while closing server: %O', error);
 			process.exit(1);
 		}
 
-		console.log('Server closed successfully.');
+		debug('Server closed successfully.');
 		process.exit(0);
 	});
 };

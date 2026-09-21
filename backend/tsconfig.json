@@ -109,7 +109,7 @@
   },
   "include": [
     "src/**/*.ts"
-  ],
+, "test/testRunner.ts"  ],
   "exclude": [
     "./node_modules",
     "test",
