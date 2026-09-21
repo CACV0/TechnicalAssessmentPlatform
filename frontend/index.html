@@ -1,0 +1,101 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Technical Assessment Platform</title>
+    <link rel="stylesheet" href="./styles.css" />
+  </head>
+
+  <body>
+    <header class="header">
+      <div>
+        <h1>Technical Assessment Platform</h1>
+        <p>Programming Challenge</p>
+      </div>
+
+      <div class="status">
+        <span class="status-dot"></span>
+        Assessment in progress
+      </div>
+    </header>
+
+    <main class="container">
+      <section class="problem-panel">
+        <div class="panel-header">
+          <span class="label">QUESTION 1</span>
+          <span class="score">10 points</span>
+        </div>
+
+        <h2>Sum two numbers</h2>
+
+        <p>Read two integers from standard input and print their sum.</p>
+
+        <h3>Example</h3>
+
+        <div class="example">
+          <strong>Input</strong>
+          <pre>
+10
+5</pre
+          >
+
+          <strong>Expected output</strong>
+          <pre>15</pre>
+        </div>
+      </section>
+
+      <section class="editor-panel">
+        <div class="editor-header">
+          <div>
+            <label for="language">Language</label>
+
+            <select id="language">
+              <option value="17414604-d075-41e4-9f1c-6c97c3745a79">Java</option>
+            </select>
+          </div>
+
+          <span id="executionStatus" class="execution-status"> Ready </span>
+        </div>
+
+        <textarea id="sourceCode" spellcheck="false">
+import java.util.Scanner;
+
+public class Main {
+	public static void main(String[] args) {
+		Scanner scanner = new Scanner(System.in);
+
+		int a = scanner.nextInt();
+		int b = scanner.nextInt();
+
+		System.out.println(a + b);
+	}
+}</textarea
+        >
+
+        <div class="actions">
+          <button id="runButton" class="button secondary">Run Code</button>
+
+          <button id="submitButton" class="button primary">
+            Submit Solution
+          </button>
+        </div>
+      </section>
+
+      <section class="results-panel">
+        <div class="results-header">
+          <h2>Results</h2>
+          <div id="finalScore" class="final-score"></div>
+        </div>
+
+        <div id="results">
+          <p class="empty-results">
+            Run or submit your solution to see the results.
+          </p>
+        </div>
+      </section>
+    </main>
+
+    <script src="./app.js"></script>
+  </body>
+</html>
