@@ -17,3 +17,32 @@ export interface RunnerResult {
 	exitCode: number | null;
 	executionTimeMs: number;
 }
+
+export interface PreparedExecution {
+	workspace: string;
+}
+
+export interface PrepareResult {
+	execution: PreparedExecution | null;
+	result: RunnerResult;
+}
+
+export interface LanguageRunnerConfig {
+	code: string;
+	image: string;
+	fileName: string;
+	prepareCommand: string[];
+	prepareNeedsWritableWorkspace: boolean;
+	runCommand: string[];
+	env?: Record<string, string>;
+}
+
+export interface CodeRunner {
+	prepare(rqUID: string, input: RunnerPrepareInput): Promise<PrepareResult>;
+	execute(
+		rqUID: string,
+		execution: PreparedExecution,
+		input: RunnerExecutionInput
+	): Promise<RunnerResult>;
+	dispose(rqUID: string, execution: PreparedExecution): Promise<void>;
+}

@@ -8,6 +8,7 @@ export interface Assessment {
 	status: AssessmentStatus;
 	createdAt: Date;
 	updatedAt: Date;
+	questionCount: number;
 }
 
 export interface CreateAssessmentInput {

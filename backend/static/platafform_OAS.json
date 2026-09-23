@@ -884,6 +884,43 @@
 				}
 			}
 		},
+		"/assessment-sessions/{sessionId}/summary": {
+			"get": {
+				"summary": "Get assessment session summary",
+				"description": "Remaining and elapsed time, correct/incorrect questions and accumulated score. Each question counts its best evaluated attempt.",
+				"tags": ["Assessment Sessions"],
+				"operationId": "getAssessmentSessionSummary",
+				"parameters": [
+					{
+						"$ref": "#/components/parameters/XRqUID"
+					},
+					{
+						"$ref": "#/components/parameters/AssessmentSessionId"
+					}
+				],
+				"responses": {
+					"200": {
+						"description": "Assessment session summary retrieved successfully",
+						"content": {
+							"application/json": {
+								"schema": {
+									"$ref": "#/components/schemas/AssessmentSessionSummaryResponse"
+								}
+							}
+						}
+					},
+					"400": {
+						"$ref": "#/components/responses/BadRequest"
+					},
+					"404": {
+						"$ref": "#/components/responses/NotFound"
+					},
+					"500": {
+						"$ref": "#/components/responses/InternalServerError"
+					}
+				}
+			}
+		},
 		"/assessment-sessions/{sessionId}/complete": {
 			"post": {
 				"summary": "Complete assessment session",
@@ -1281,6 +1318,11 @@
 					"updatedAt": {
 						"type": "string",
 						"format": "date-time"
+					},
+					"questionCount": {
+						"type": "integer",
+						"minimum": 0,
+						"description": "Number of questions configured in the assessment"
 					}
 				}
 			},
@@ -2082,6 +2124,119 @@
 						"properties": {
 							"Data": {
 								"$ref": "#/components/schemas/SubmissionResult"
+							}
+						}
+					}
+				]
+			},
+			"QuestionProgress": {
+				"type": "object",
+				"required": ["questionId", "title", "displayOrder", "maxScore", "attempts", "result"],
+				"properties": {
+					"questionId": {
+						"type": "string",
+						"format": "uuid"
+					},
+					"title": {
+						"type": "string"
+					},
+					"displayOrder": {
+						"type": "integer"
+					},
+					"maxScore": {
+						"type": "number"
+					},
+					"attempts": {
+						"type": "integer"
+					},
+					"bestScore": {
+						"type": "number",
+						"nullable": true
+					},
+					"lastSubmissionId": {
+						"type": "string",
+						"format": "uuid",
+						"nullable": true
+					},
+					"result": {
+						"type": "string",
+						"enum": ["CORRECT", "INCORRECT", "NOT_ANSWERED"]
+					}
+				}
+			},
+			"AssessmentSessionSummary": {
+				"type": "object",
+				"required": [
+					"session",
+					"assessmentName",
+					"timeLimitMinutes",
+					"remainingSeconds",
+					"elapsedSeconds",
+					"totalQuestions",
+					"answeredQuestions",
+					"correctQuestions",
+					"incorrectQuestions",
+					"score",
+					"maxScore",
+					"percentage",
+					"questions"
+				],
+				"properties": {
+					"session": {
+						"$ref": "#/components/schemas/AssessmentSession"
+					},
+					"assessmentName": {
+						"type": "string"
+					},
+					"timeLimitMinutes": {
+						"type": "integer"
+					},
+					"remainingSeconds": {
+						"type": "integer"
+					},
+					"elapsedSeconds": {
+						"type": "integer"
+					},
+					"totalQuestions": {
+						"type": "integer"
+					},
+					"answeredQuestions": {
+						"type": "integer"
+					},
+					"correctQuestions": {
+						"type": "integer"
+					},
+					"incorrectQuestions": {
+						"type": "integer"
+					},
+					"score": {
+						"type": "number"
+					},
+					"maxScore": {
+						"type": "number"
+					},
+					"percentage": {
+						"type": "number"
+					},
+					"questions": {
+						"type": "array",
+						"items": {
+							"$ref": "#/components/schemas/QuestionProgress"
+						}
+					}
+				}
+			},
+			"AssessmentSessionSummaryResponse": {
+				"allOf": [
+					{
+						"$ref": "#/components/schemas/BaseResponse"
+					},
+					{
+						"type": "object",
+						"required": ["Data"],
+						"properties": {
+							"Data": {
+								"$ref": "#/components/schemas/AssessmentSessionSummary"
 							}
 						}
 					}

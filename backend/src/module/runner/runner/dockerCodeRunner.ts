@@ -5,53 +5,72 @@ import { mkdtemp, rm, writeFile } from 'fs/promises';
 import { tmpdir } from 'os';
 import path from 'path';
 import {
+	CodeRunner,
+	LanguageRunnerConfig,
+	PreparedExecution,
+	PrepareResult,
 	RunnerExecutionInput,
 	RunnerPrepareInput,
 	RunnerResult,
 	RunnerStatus,
 } from '../types/runnerTypes';
 
-const debug = debugLib('platform:JavaRunner');
+const debug = debugLib('platform:DockerCodeRunner');
+
+const PREPARE_TIMEOUT_MS = 15000;
+const MAX_OUTPUT_BYTES = 64 * 1024;
 
 interface ProcessResult {
 	stdout: string;
 	stderr: string;
 	exitCode: number | null;
 	timedOut: boolean;
+	outputLimitExceeded: boolean;
 	executionTimeMs: number;
 }
 
-export interface PreparedJavaExecution {
-	workspace: string;
-}
+class DockerCodeRunner implements CodeRunner {
+	constructor(private readonly config: LanguageRunnerConfig) {}
 
-export interface JavaPrepareResult {
-	execution: PreparedJavaExecution | null;
-	result: RunnerResult;
-}
-
-class JavaRunner {
-	public async prepare(rqUID: string, input: RunnerPrepareInput): Promise<JavaPrepareResult> {
-		debug('[%s] Preparing Java source code', rqUID);
-		const workspace = await mkdtemp(path.join(tmpdir(), 'technical-assessment-java-'));
+	public async prepare(rqUID: string, input: RunnerPrepareInput): Promise<PrepareResult> {
+		debug('[%s] Preparing %s source code', rqUID, this.config.code);
+		const workspace = await mkdtemp(
+			path.join(tmpdir(), `technical-assessment-${this.config.code}-`)
+		);
 
 		try {
-			await writeFile(path.join(workspace, 'Main.java'), input.sourceCode, 'utf8');
-			const compileResult = await this.compile(rqUID, workspace);
+			await writeFile(path.join(workspace, this.config.fileName), input.sourceCode, 'utf8');
+			const processResult = await this.runDockerProcess(
+				rqUID,
+				this.buildDockerArgs(
+					workspace,
+					this.config.prepareCommand,
+					this.config.prepareNeedsWritableWorkspace,
+					false
+				),
+				null,
+				PREPARE_TIMEOUT_MS
+			);
 
-			if (compileResult.status === 'COMPILE_ERROR') {
+			if (processResult.timedOut) {
+				throw new Error(`${this.config.code} preparation process timed out`);
+			}
+
+			if (processResult.exitCode !== 0) {
+				debug('[%s] %s preparation failed', rqUID, this.config.code);
 				await this.removeWorkspace(rqUID, workspace);
 				return {
 					execution: null,
-					result: compileResult,
+					result: this.toRunnerResult('COMPILE_ERROR', processResult),
 				};
 			}
-			debug('[%s] Java source code prepared successfully', rqUID);
+
+			debug('[%s] %s source code prepared successfully', rqUID, this.config.code);
 			return {
 				execution: {
 					workspace,
 				},
-				result: compileResult,
+				result: this.toRunnerResult('SUCCESS', processResult),
 			};
 		} catch (error) {
 			await this.removeWorkspace(rqUID, workspace);
@@ -61,92 +80,83 @@ class JavaRunner {
 
 	public async execute(
 		rqUID: string,
-		execution: PreparedJavaExecution,
+		execution: PreparedExecution,
 		input: RunnerExecutionInput
 	): Promise<RunnerResult> {
-		debug('[%s] Executing prepared Java source code', rqUID);
+		debug('[%s] Executing prepared %s source code', rqUID, this.config.code);
 		const result = await this.runDockerProcess(
 			rqUID,
-			[
-				'run',
-				'--rm',
-				'-i',
-				'--network',
-				'none',
-				'--memory',
-				'128m',
-				'--cpus',
-				'0.5',
-				'--pids-limit',
-				'64',
-				'--read-only',
-				'-v',
-				`${execution.workspace}:/workspace:ro`,
-				'-w',
-				'/workspace',
-				'eclipse-temurin:21-jdk',
-				'java',
-				'Main',
-			],
+			this.buildDockerArgs(execution.workspace, this.config.runCommand, false, true),
 			input.stdin,
 			input.timeoutMs
 		);
 
 		if (result.timedOut) {
-			debug('[%s] Java execution timed out', rqUID);
+			debug('[%s] %s execution timed out', rqUID, this.config.code);
 			return this.toRunnerResult('TIMEOUT', result);
 		}
 
+		if (result.outputLimitExceeded) {
+			debug('[%s] %s execution exceeded output limit', rqUID, this.config.code);
+			return this.toRunnerResult('RUNTIME_ERROR', {
+				...result,
+				stderr: `${result.stderr}\nOutput limit of ${MAX_OUTPUT_BYTES} bytes exceeded`,
+			});
+		}
+
 		if (result.exitCode !== 0) {
-			debug('[%s] Java runtime error. Exit code: %s', rqUID, result.exitCode);
+			debug('[%s] %s runtime error. Exit code: %s', rqUID, this.config.code, result.exitCode);
 			return this.toRunnerResult('RUNTIME_ERROR', result);
 		}
 
-		debug('[%s] Java execution completed successfully', rqUID);
+		debug('[%s] %s execution completed successfully', rqUID, this.config.code);
 		return this.toRunnerResult('SUCCESS', result);
 	}
 
-	public async dispose(rqUID: string, execution: PreparedJavaExecution): Promise<void> {
+	public async dispose(rqUID: string, execution: PreparedExecution): Promise<void> {
 		await this.removeWorkspace(rqUID, execution.workspace);
 	}
 
-	private async compile(rqUID: string, workspace: string): Promise<RunnerResult> {
-		debug('[%s] Compiling Java source code', rqUID);
-		const result = await this.runDockerProcess(
-			rqUID,
-			[
-				'run',
-				'--rm',
-				'--network',
-				'none',
-				'--memory',
-				'128m',
-				'--cpus',
-				'0.5',
-				'--pids-limit',
-				'64',
-				'-v',
-				`${workspace}:/workspace`,
-				'-w',
-				'/workspace',
-				'eclipse-temurin:21-jdk',
-				'javac',
-				'Main.java',
-			],
-			null,
-			10000
-		);
+	private buildDockerArgs(
+		workspace: string,
+		command: string[],
+		writableWorkspace: boolean,
+		interactive: boolean
+	): string[] {
+		const envArgs = Object.entries(this.config.env ?? {}).flatMap(([key, value]) => [
+			'-e',
+			`${key}=${value}`,
+		]);
 
-		if (result.timedOut) {
-			throw new Error('Java compilation process timed out');
-		}
-
-		if (result.exitCode !== 0) {
-			debug('[%s] Java compilation failed', rqUID);
-			return this.toRunnerResult('COMPILE_ERROR', result);
-		}
-		debug('[%s] Java compilation completed successfully', rqUID);
-		return this.toRunnerResult('SUCCESS', result);
+		return [
+			'run',
+			'--rm',
+			...(interactive ? ['-i'] : []),
+			'--network',
+			'none',
+			'--memory',
+			'128m',
+			'--memory-swap',
+			'128m',
+			'--cpus',
+			'0.5',
+			'--pids-limit',
+			'64',
+			'--cap-drop',
+			'ALL',
+			'--security-opt',
+			'no-new-privileges',
+			'--read-only',
+			'--tmpfs',
+			'/tmp:rw,size=16m',
+			...envArgs,
+			'-v',
+			`${workspace}:/workspace${writableWorkspace ? '' : ':ro'}`,
+			'-w',
+			'/workspace',
+			this.config.image,
+			...command,
+		];
 	}
 
 	private runDockerProcess(
@@ -162,6 +172,7 @@ class JavaRunner {
 			let stdout = '';
 			let stderr = '';
 			let timedOut = false;
+			let outputLimitExceeded = false;
 			let settled = false;
 
 			const dockerArgs = this.addContainerName(args, containerName);
@@ -170,25 +181,45 @@ class JavaRunner {
 				stdio: ['pipe', 'pipe', 'pipe'],
 			});
 
-			const timeout = setTimeout(() => {
-				timedOut = true;
-				debug('[%s] Docker process timed out. Container: %s', rqUID, containerName);
+			const killContainer = (reason: string): void => {
+				debug('[%s] Stopping container %s: %s', rqUID, containerName, reason);
 				this.forceRemoveContainer(rqUID, containerName).catch((error) => {
 					debug(
-						'[%s] Error removing timed out container %s: %s',
+						'[%s] Error removing container %s: %s',
 						rqUID,
 						containerName,
 						error instanceof Error ? error.message : String(error)
 					);
 				});
+			};
+
+			const timeout = setTimeout(() => {
+				timedOut = true;
+				killContainer('timeout');
 			}, timeoutMs);
 
+			const appendOutput = (current: string, data: Buffer): string => {
+				if (outputLimitExceeded) {
+					return current;
+				}
+				const next = current + data.toString();
+				if (
+					Buffer.byteLength(stdout) + Buffer.byteLength(stderr) + data.length >
+					MAX_OUTPUT_BYTES
+				) {
+					outputLimitExceeded = true;
+					killContainer('output limit exceeded');
+					return next.slice(0, MAX_OUTPUT_BYTES);
+				}
+				return next;
+			};
+
 			child.stdout.on('data', (data: Buffer) => {
-				stdout += data.toString();
+				stdout = appendOutput(stdout, data);
 			});
 
 			child.stderr.on('data', (data: Buffer) => {
-				stderr += data.toString();
+				stderr = appendOutput(stderr, data);
 			});
 
 			child.on('error', (error) => {
@@ -213,9 +244,12 @@ class JavaRunner {
 					stderr,
 					exitCode: timedOut ? null : code,
 					timedOut,
+					outputLimitExceeded,
 					executionTimeMs: Date.now() - startedAt,
 				});
 			});
+
+			child.stdin.on('error', () => undefined);
 
 			if (stdin !== null) {
 				child.stdin.write(stdin);
@@ -264,7 +298,7 @@ class JavaRunner {
 			recursive: true,
 			force: true,
 		});
-		debug('[%s] Java workspace removed', rqUID);
+		debug('[%s] Workspace removed', rqUID);
 	}
 
 	private toRunnerResult(status: RunnerStatus, result: ProcessResult): RunnerResult {
@@ -278,4 +312,4 @@ class JavaRunner {
 	}
 }
 
-export default new JavaRunner();
+export default DockerCodeRunner;

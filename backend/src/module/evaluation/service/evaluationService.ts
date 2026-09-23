@@ -1,7 +1,8 @@
 import debugLib from 'debug';
 import assessmentSessionRepository from '../../assessmentSession/repository/assessmentSessionRepository';
 import questionRepository from '../../question/repository/questionRepository';
-import javaRunner, { PreparedJavaExecution } from '../../runner/runner/javaRunner';
+import runnerFactory from '../../runner/runner/runnerFactory';
+import { CodeRunner, PreparedExecution } from '../../runner/types/runnerTypes';
 import testCaseEvaluator from '../../runner/service/testCaseEvaluator';
 import submissionRepository from '../../submission/repository/submissionRepository';
 import { Submission } from '../../submission/types/submissionTypes';
@@ -11,7 +12,7 @@ import programmingLanguageRepository from '../../programmingLanguage/repository/
 
 const debug = debugLib('platform:EvaluationService');
 
-const EXECUTION_TIMEOUT_MS = 2000;
+const EXECUTION_TIMEOUT_MS = 5000;
 
 class EvaluationService {
 	public async evaluate(rqUID: string, submissionId: string): Promise<Submission> {
@@ -26,7 +27,8 @@ class EvaluationService {
 			throw new Error(`Submission ${submissionId} is not pending`);
 		}
 
-		let preparedExecution: PreparedJavaExecution | null = null;
+		let runner: CodeRunner | null = null;
+		let preparedExecution: PreparedExecution | null = null;
 
 		try {
 			const session = await assessmentSessionRepository.findById(
@@ -67,11 +69,13 @@ class EvaluationService {
 				throw new Error(`Programming language is not active: ${programmingLanguage.code}`);
 			}
 
-			if (programmingLanguage.code.toLowerCase() !== 'java') {
+			runner = runnerFactory.getRunner(programmingLanguage.code);
+
+			if (!runner) {
 				throw new Error(`Programming language runner not supported: ${programmingLanguage.code}`);
 			}
 
-			const prepareResult = await javaRunner.prepare(rqUID, {
+			const prepareResult = await runner.prepare(rqUID, {
 				languageCode: programmingLanguage.code,
 				sourceCode: submission.sourceCode,
 			});
@@ -98,7 +102,7 @@ class EvaluationService {
 			}
 
 			if (!prepareResult.execution) {
-				throw new Error(`Java execution was not prepared for submission: ${submission.id}`);
+				throw new Error(`Execution was not prepared for submission: ${submission.id}`);
 			}
 
 			preparedExecution = prepareResult.execution;
@@ -106,7 +110,7 @@ class EvaluationService {
 			let passedTestCases = 0;
 
 			for (const testCase of testCases) {
-				const runnerResult = await javaRunner.execute(rqUID, preparedExecution, {
+				const runnerResult = await runner.execute(rqUID, preparedExecution, {
 					stdin: testCase.input,
 					timeoutMs: EXECUTION_TIMEOUT_MS,
 				});
@@ -140,8 +144,8 @@ class EvaluationService {
 
 			throw error;
 		} finally {
-			if (preparedExecution) {
-				await javaRunner.dispose(rqUID, preparedExecution);
+			if (runner && preparedExecution) {
+				await runner.dispose(rqUID, preparedExecution);
 			}
 		}
 	}

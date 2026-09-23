@@ -59,6 +59,29 @@ class AssessmentSessionController {
 		}
 	}
 
+	public async summary(req: Request, res: Response, next: NextFunction): Promise<void> {
+		const rqUID = req.header('X-RqUID') || '';
+		const { sessionId } = req.params;
+		try {
+			debug('[%s] Getting assessment session summary: %s', rqUID, sessionId);
+			const summary = await assessmentSessionService.getSummary(rqUID, sessionId);
+			res
+				.status(200)
+				.json(
+					apiResponse.success(
+						rqUID,
+						200,
+						'ASSESSMENT_SESSION_SUMMARY_FOUND',
+						'Assessment session summary retrieved successfully',
+						summary
+					)
+				);
+		} catch (error) {
+			debug('[%s] Error getting assessment session summary %s: %O', rqUID, sessionId, error);
+			next(error);
+		}
+	}
+
 	public async complete(req: Request, res: Response, next: NextFunction): Promise<void> {
 		const rqUID = req.header('X-RqUID') || '';
 		const { sessionId } = req.params;

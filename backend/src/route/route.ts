@@ -75,6 +75,7 @@ class RouterPlatafform {
 		// Assessment Session
 		this.router.post('/assessments/:assessmentId/sessions', AssessmentSessionController.create);
 		this.router.get('/assessment-sessions/:sessionId', AssessmentSessionController.findById);
+		this.router.get('/assessment-sessions/:sessionId/summary', AssessmentSessionController.summary);
 		this.router.post(
 			'/assessment-sessions/:sessionId/complete',
 			AssessmentSessionController.complete

@@ -18,6 +18,7 @@ interface AssessmentRow {
 	status: AssessmentStatus;
 	created_at: Date;
 	updated_at: Date;
+	question_count: number;
 }
 
 class AssessmentRepository {
@@ -37,7 +38,8 @@ class AssessmentRepository {
 				time_limit_minutes,
 				status,
 				created_at,
-				updated_at;
+				updated_at,
+				(SELECT COUNT(*)::int FROM question q WHERE q.assessment_id = assessment.id) AS question_count;
 		`;
 		const values = [data.name, data.description ?? null, data.timeLimitMinutes];
 		const result = await pool.query<AssessmentRow>(query, values);
@@ -56,7 +58,8 @@ class AssessmentRepository {
 				time_limit_minutes,
 				status,
 				created_at,
-				updated_at
+				updated_at,
+				(SELECT COUNT(*)::int FROM question q WHERE q.assessment_id = assessment.id) AS question_count
 			FROM assessment
 			ORDER BY created_at DESC;
 		`;
@@ -76,7 +79,8 @@ class AssessmentRepository {
 				time_limit_minutes,
 				status,
 				created_at,
-				updated_at
+				updated_at,
+				(SELECT COUNT(*)::int FROM question q WHERE q.assessment_id = assessment.id) AS question_count
 			FROM assessment
 			WHERE id = $1;
 		`;
@@ -108,7 +112,8 @@ class AssessmentRepository {
 				time_limit_minutes,
 				status,
 				created_at,
-				updated_at;
+				updated_at,
+				(SELECT COUNT(*)::int FROM question q WHERE q.assessment_id = assessment.id) AS question_count;
 		`;
 		const values = [id, data.name ?? null, data.description ?? null, data.timeLimitMinutes ?? null];
 		const result = await pool.query<AssessmentRow>(query, values);
@@ -136,7 +141,8 @@ class AssessmentRepository {
 				time_limit_minutes,
 				status,
 				created_at,
-				updated_at;
+				updated_at,
+				(SELECT COUNT(*)::int FROM question q WHERE q.assessment_id = assessment.id) AS question_count;
 		`;
 		const result = await pool.query<AssessmentRow>(query, [id, status]);
 		const assessment = this.mapRow(result.rows[0]);
@@ -153,6 +159,7 @@ class AssessmentRepository {
 			status: row.status,
 			createdAt: row.created_at,
 			updatedAt: row.updated_at,
+			questionCount: row.question_count,
 		};
 	}
 }

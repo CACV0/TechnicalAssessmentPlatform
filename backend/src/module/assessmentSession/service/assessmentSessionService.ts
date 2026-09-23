@@ -2,7 +2,13 @@ import debugLib from 'debug';
 import AppError from '../../../generic/error';
 import assessmentRepository from '../../assessment/repository/assessmentRepository';
 import assessmentSessionRepository from '../repository/assessmentSessionRepository';
-import { AssessmentSession, CreateAssessmentSessionInput } from '../types/assessmentSessionTypes';
+import {
+	AssessmentSession,
+	AssessmentSessionSummary,
+	CreateAssessmentSessionInput,
+	QuestionProgress,
+	QuestionProgressResult,
+} from '../types/assessmentSessionTypes';
 
 const debug = debugLib('platform:AssessmentSessionService');
 
@@ -61,6 +67,48 @@ class AssessmentSessionService {
 		return session;
 	}
 
+	public async getSummary(rqUID: string, id: string): Promise<AssessmentSessionSummary> {
+		debug('[%s] Getting assessment session summary: %s', rqUID, id);
+		const session = await this.findById(rqUID, id);
+		const assessment = await assessmentRepository.findById(rqUID, session.assessmentId);
+
+		if (!assessment) {
+			throw new AppError(404, 'ASSESSMENT_NOT_FOUND', 'Assessment not found');
+		}
+		const progressRows = await assessmentSessionRepository.findQuestionProgress(
+			rqUID,
+			session.id,
+			session.assessmentId
+		);
+		const questions: QuestionProgress[] = progressRows.map((row) => ({
+			...row,
+			result: this.getQuestionResult(row.bestScore, row.maxScore),
+		}));
+		const now = Date.now();
+		const endTime = session.completedAt?.getTime() ?? Math.min(now, session.expiresAt.getTime());
+		const remainingSeconds =
+			session.status === 'IN_PROGRESS'
+				? Math.max(0, Math.floor((session.expiresAt.getTime() - now) / 1000))
+				: 0;
+		const score = questions.reduce((total, question) => total + (question.bestScore ?? 0), 0);
+		const maxScore = questions.reduce((total, question) => total + question.maxScore, 0);
+		return {
+			session,
+			assessmentName: assessment.name,
+			timeLimitMinutes: assessment.timeLimitMinutes,
+			remainingSeconds,
+			elapsedSeconds: Math.max(0, Math.floor((endTime - session.startedAt.getTime()) / 1000)),
+			totalQuestions: questions.length,
+			answeredQuestions: questions.filter((question) => question.result !== 'NOT_ANSWERED').length,
+			correctQuestions: questions.filter((question) => question.result === 'CORRECT').length,
+			incorrectQuestions: questions.filter((question) => question.result === 'INCORRECT').length,
+			score: this.round(score),
+			maxScore: this.round(maxScore),
+			percentage: maxScore > 0 ? this.round((score / maxScore) * 100) : 0,
+			questions,
+		};
+	}
+
 	public async complete(rqUID: string, id: string): Promise<AssessmentSession> {
 		debug('[%s] Completing assessment session: %s', rqUID, id);
 		const session = await this.findById(rqUID, id);
@@ -93,6 +141,17 @@ class AssessmentSessionService {
 		);
 		debug('[%s] Assessment session completed successfully: %s', rqUID, id);
 		return completedSession;
+	}
+
+	private getQuestionResult(bestScore: number | null, maxScore: number): QuestionProgressResult {
+		if (bestScore === null) {
+			return 'NOT_ANSWERED';
+		}
+		return bestScore >= maxScore ? 'CORRECT' : 'INCORRECT';
+	}
+
+	private round(value: number): number {
+		return Math.round(value * 100) / 100;
 	}
 }
 
